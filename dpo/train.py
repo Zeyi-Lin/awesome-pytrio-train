@@ -10,7 +10,7 @@
                         - (log pi_rejected - log ref_rejected))).
 
 训练命令：
-uv run python 01-demo-sync.py \
+python train.py \
     --steps 100 \
     --batch-size 16 \
     --sample-size 5000 \
@@ -102,7 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-weights-name", default="dpo-hh-rlhf-qwen35-4b-sync")
 
     parser.add_argument("--swanlab", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--swanlab-project", default="trio-case")
+    parser.add_argument("--swanlab-project", default="dpo-hh-rlhf-pytrio")
     parser.add_argument("--swanlab-name", default="dpo-qwen35-4b-sync")
     parser.add_argument("--swanlab-workspace", default=None)
     parser.add_argument(
