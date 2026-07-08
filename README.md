@@ -1,9 +1,19 @@
 ![](./assets/cover.png)
 
 <div align="center">
-<h1>Awesome PyTRIO Train</h1>
+<h1>Awesome PyTRiO Train</h1>
 </div>
 
-## TOC
+[PyTRIO](https://pytrio.cn) makes it easy to launch training from a device without a GPU, whether you are running a simple SFT workflow or a more complex Agentic-RL setup.
 
-1. [DPO](./dpo/README.md)
+This repository provides a roadmap for learning practical PyTRIO use cases, helping you get training jobs started quickly and adapt them to real-world needs.
+
+## Install PyTRIO
+
+```bash
+pip install pytrio
+```
+
+## Table of Contents
+
+1. [DPO](./dpo)
