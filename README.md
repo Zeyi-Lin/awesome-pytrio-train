@@ -16,4 +16,5 @@ pip install pytrio
 
 ## Table of Contents
 
-1. [DPO](./dpo)
+1. [SFT](./sft)
+2. [DPO](./dpo)
