@@ -1,4 +1,0 @@
-pytrio
-swanlab
-datasets
-torch
