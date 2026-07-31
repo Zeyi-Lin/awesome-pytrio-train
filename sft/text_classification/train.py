@@ -10,9 +10,9 @@ batch_size = 32
 epoch = 1
 train_size = 400
 eval_size = 20
-max_seq_len = 8192
+max_seq_len = 4096
 
-# 1. 与TRIO建立连接
+# 1. 与PyTRIO建立连接
 service_client = trio.ServiceClient()
 
 # 2. 创建1个训练客户端

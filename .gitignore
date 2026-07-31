@@ -1,1 +1,3 @@
 datasets/
+sft/text_classification/*.jsonl
+*.pyc
