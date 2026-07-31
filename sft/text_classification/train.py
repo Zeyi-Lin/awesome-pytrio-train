@@ -8,7 +8,7 @@ test_dataset_path = "test.jsonl"
 system_prompt = "你是一个严格的文本分类器。你必须从用户给出的候选标签中选择且只选择一个标签。最终回答只能包含候选标签原文，不要解释、不要复述文本、不要输出标点、不要输出 JSON。"
 batch_size = 32
 epoch = 1
-train_size = 400
+train_size = 200
 eval_size = 20
 max_seq_len = 8192
 
