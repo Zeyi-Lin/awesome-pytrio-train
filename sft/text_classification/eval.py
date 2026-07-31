@@ -52,6 +52,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval-size", type=int, default=100)
     parser.add_argument("--max-seq-len", type=int, default=4096)
     parser.add_argument("--max-new-tokens", type=int, default=20)
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=1,
+        help="每多少条样本打印一次中间结果；0 表示只打印最终结果",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
@@ -62,6 +68,8 @@ def parse_args() -> argparse.Namespace:
         raise ValueError("--max-seq-len must be >= 8")
     if args.max_new_tokens < 1:
         raise ValueError("--max-new-tokens must be >= 1")
+    if args.progress_every < 0:
+        raise ValueError("--progress-every must be >= 0")
     return args
 
 
@@ -130,6 +138,11 @@ def clean_generation(text: str) -> str:
     return text.strip(" \t\r\n'\"`。，、：:；;！!？?()[]{}<>")
 
 
+def short_text(text: str, max_chars: int = 40) -> str:
+    text = text.replace("\n", "\\n")
+    return text if len(text) <= max_chars else f"{text[:max_chars - 3]}..."
+
+
 def extract_label(text: str, candidates: list[str]) -> str:
     cleaned = clean_generation(text)
     normalized = cleaned.casefold()
@@ -191,12 +204,14 @@ def main(args: argparse.Namespace) -> None:
     tokenizer = base_client.get_tokenizer()
     print(f"Start eval: {len(examples)} examples from {args.dataset_path}")
 
+    total = len(examples)
     base_correct = 0
     tuned_correct = 0
     improved = 0
     regressed = 0
 
     for index, example in enumerate(examples, start=1):
+        case_start = time.time()
         base_pred = predict(base_client, tokenizer, params, example, args.max_seq_len)
         tuned_pred = predict(tuned_client, tokenizer, params, example, args.max_seq_len)
         base_hit = base_pred.label == example.label
@@ -207,14 +222,23 @@ def main(args: argparse.Namespace) -> None:
         improved += int(not base_hit and tuned_hit)
         regressed += int(base_hit and not tuned_hit)
 
-        if args.verbose:
-            print(
-                f"{index:03d}/{len(examples)} | "
-                f"base={base_pred.label!r} | tuned={tuned_pred.label!r} | "
-                f"label={example.label!r}"
+        if args.progress_every and (index == 1 or index == total or index % args.progress_every == 0):
+            message = (
+                f"Eval {index:03d}/{total} | "
+                f"base {base_correct}/{index}={base_correct / index:.2%} | "
+                f"tuned {tuned_correct}/{index}={tuned_correct / index:.2%} | "
+                f"lift {tuned_correct - base_correct:+d} | "
+                f"improved {improved} | regressed {regressed} | "
+                f"{time.time() - case_start:.1f}s"
             )
+            if args.verbose:
+                message += (
+                    f" | base_pred={short_text(base_pred.label)!r} | "
+                    f"tuned_pred={short_text(tuned_pred.label)!r} | "
+                    f"label={example.label!r}"
+                )
+            print(message, flush=True)
 
-    total = len(examples)
     base_acc = base_correct / total
     tuned_acc = tuned_correct / total
     delta = tuned_acc - base_acc
