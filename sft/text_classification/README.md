@@ -22,5 +22,5 @@ python train.py
 ## 评估
 
 ```bash
-python eval.py --model-path YOUR_PYTRIO_WEIGHT_PATH
+python eval.py --model-path YOUR_PYTRIO_WEIGHT_PATH --eval-size 100
 ```
