@@ -5,9 +5,9 @@ Before running:
     trio login
 
 Examples:
-    python eval_gsm8k_base_hf.py --limit 100
-    python eval_gsm8k_base_hf.py --limit 100 --concurrency 16
-    python eval_gsm8k_base_hf.py --checkpoint-path trio://run_xxx/sampler_weights/xxx
+    python eval.py --limit 100
+    python eval.py --limit 100 --concurrency 16
+    python eval.py --checkpoint-path trio://run_xxx/sampler_weights/xxx
 """
 
 from __future__ import annotations
