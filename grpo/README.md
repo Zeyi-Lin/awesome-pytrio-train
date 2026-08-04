@@ -11,7 +11,7 @@ pip install -r requirements.txt
 训练50个step：
 
 ```bash
-python train.py --steps 50 --batch-size 2 --group-size 16 --max-tokens 512 --eval-limit 0
+python train.py --steps 50 --batch-size 2 --group-size 16 --max-tokens 512
 ```
 
 ## 评估

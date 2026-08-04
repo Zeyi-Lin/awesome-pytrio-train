@@ -5,7 +5,7 @@ Before running:
     trio login
 
 Quick smoke test:
-    python train.py --limit 8 --batch-size 2 --group-size 2 --max-tokens 128
+    python train.py --steps 50 --batch-size 2 --group-size 16 --max-tokens 512
 
 Default run uses the first 200 train examples from:
     https://huggingface.co/datasets/openai/gsm8k
