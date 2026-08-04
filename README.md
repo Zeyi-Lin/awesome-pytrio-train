@@ -20,3 +20,4 @@ pip install pytrio
 
 1. [SFT](./sft)
 2. [DPO](./dpo)
+3. [GRPO](./grpo)
