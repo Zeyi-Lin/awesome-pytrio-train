@@ -61,8 +61,9 @@ async def eval_one(
     row: dict[str, str],
     row_number: int,
     params: Any,
+    max_tokens: int,
     semaphore: asyncio.Semaphore,
-) -> tuple[int, bool]:
+) -> tuple[int, bool, str, int]:
     async with semaphore:
         gold = gsm8k_gold(row["answer"])
         prompt_tokens = render_prompt(tokenizer, row["question"])
@@ -79,7 +80,15 @@ async def eval_one(
             else tokenizer.decode(sequence.tokens, skip_special_tokens=True)
         )
         score = score_completion(text, gold)
-        return row_number, bool(score["exact"])
+        is_correct = bool(score["exact"])
+        completion_tokens = len(sequence.tokens)
+        if is_correct:
+            outcome = "correct"
+        elif completion_tokens >= max_tokens:
+            outcome = "max_tokens_truncated"
+        else:
+            outcome = "wrong_answer"
+        return row_number, is_correct, outcome, completion_tokens
 
 
 async def evaluate_async(
@@ -105,6 +114,7 @@ async def evaluate_async(
                 row=row,
                 row_number=index,
                 params=params,
+                max_tokens=max_tokens,
                 semaphore=semaphore,
             )
         )
@@ -112,21 +122,29 @@ async def evaluate_async(
     ]
 
     correct = 0
+    wrong_answers = 0
+    max_tokens_truncated = 0
     completed = 0
     total = len(tasks)
     print(f"Start async eval: total={total}, concurrency={concurrency}")
     for task in asyncio.as_completed(tasks):
-        row_number, is_correct = await task
+        row_number, is_correct, outcome, completion_tokens = await task
         completed += 1
         correct += int(is_correct)
+        wrong_answers += int(outcome == "wrong_answer")
+        max_tokens_truncated += int(outcome == "max_tokens_truncated")
         running_acc = correct / completed
         print(
             f"eval {completed}/{total} | row={row_number} | "
-            f"correct={is_correct} | acc={running_acc:.4f}"
+            f"correct={is_correct} | outcome={outcome} | "
+            f"completion_tokens={completion_tokens}/{max_tokens} | acc={running_acc:.4f}"
         )
 
     final_acc = correct / total if total else 0.0
-    print(f"Final | exact_acc={final_acc:.4f}")
+    print(
+        f"Final | exact_acc={final_acc:.4f} | correct={correct} | "
+        f"wrong_answer={wrong_answers} | max_tokens_truncated={max_tokens_truncated}"
+    )
 
 
 async def main_async() -> None:

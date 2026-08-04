@@ -41,17 +41,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=None, help="Defaults to one pass over --limit.")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--group-size", type=int, default=4)
+    parser.add_argument(
+        "--rollout-concurrency",
+        "--concurrency",
+        dest="rollout_concurrency",
+        type=int,
+        default=8,
+        help="Maximum number of concurrent rollout requests.",
+    )
     parser.add_argument("--max-tokens", type=int, default=512)
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top-p", type=float, default=1.0)
     parser.add_argument("--learning-rate", type=float, default=4e-5)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--weights-name", default="qwen35-4b-gsm8k-grpo-hf-200")
-    parser.add_argument("--eval-limit", type=int, default=16, help="Use 0 to skip eval.")
-    parser.add_argument("--eval-split", default="test")
-    parser.add_argument("--eval-max-tokens", type=int, default=512)
-    parser.add_argument("--eval-print-samples", type=int, default=3)
-    parser.add_argument("--eval-concurrency", type=int, default=8)
+    parser.add_argument(
+        "--save-interval",
+        type=int,
+        default=50,
+        help="Save a full training state every N completed steps; the final step is always saved.",
+    )
+    parser.add_argument(
+        "--weights-name",
+        default=None,
+        help=(
+            "Optional saved-weight name prefix. Training hypestaterparameters, step, and artifact "
+            "type are appended automatically."
+        ),
+    )
     parser.add_argument("--list-models", action="store_true")
     return parser.parse_args()
 
@@ -69,7 +85,11 @@ def load_runtime() -> tuple[Any, Any, Any]:
     return trio, np, load_dataset
 
 
-def load_gsm8k(load_dataset: Any, limit: int, split: str = "train") -> list[dict[str, str]]:
+def load_gsm8k(
+    load_dataset: Any,
+    limit: int,
+    split: str = "train",
+) -> list[dict[str, str]]:
     if limit <= 0:
         raise ValueError("--limit must be greater than 0")
 
@@ -174,7 +194,7 @@ def reward(completion: str, gold: str) -> float:
     return float(score_completion(completion, gold)["reward"])
 
 
-def rollout_group(
+async def rollout_group(
     trio: Any,
     sampler: Any,
     tokenizer: Any,
@@ -182,13 +202,15 @@ def rollout_group(
     gold: str,
     params: Any,
     group_size: int,
+    semaphore: asyncio.Semaphore,
 ) -> list[dict[str, Any]]:
-    result = sampler.sample(
-        prompt=trio.ModelInput.from_ints(prompt_tokens),
-        num_samples=group_size,
-        sampling_params=params,
-        return_text=True,
-    ).result()
+    async with semaphore:
+        result = await sampler.sample_async(
+            prompt=trio.ModelInput.from_ints(prompt_tokens),
+            num_samples=group_size,
+            sampling_params=params,
+            return_text=True,
+        )
 
     samples = []
     rewards = []
@@ -241,13 +263,6 @@ def stop_sequences(tokenizer: Any) -> list[str]:
     return list(dict.fromkeys(x for x in [getattr(tokenizer, "eos_token", None), "<|im_end|>"] if x))
 
 
-def preview(text: str, max_chars: int) -> str:
-    text = re.sub(r"\s+", " ", text).strip()
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars].rstrip() + "..."
-
-
 def reward_std(values: list[float]) -> float:
     if len(values) < 2:
         return 0.0
@@ -255,82 +270,38 @@ def reward_std(values: list[float]) -> float:
     return math.sqrt(sum((value - mean) ** 2 for value in values) / len(values))
 
 
-async def evaluate_one(
-    trio: Any,
-    sampler: Any,
-    tokenizer: Any,
-    row: dict[str, str],
-    index: int,
-    params: Any,
-    semaphore: asyncio.Semaphore,
-) -> tuple[int, str, str, dict[str, Any]]:
-    async with semaphore:
-        gold = gsm8k_gold(row["answer"])
-        prompt_tokens = render_prompt(tokenizer, row["question"])
-        result = await sampler.sample_async(
-            prompt=trio.ModelInput.from_ints(prompt_tokens),
-            num_samples=1,
-            sampling_params=params,
-            return_text=True,
-        )
-        seq = result.sequences[0]
-        text = seq.text if seq.text is not None else tokenizer.decode(seq.tokens, skip_special_tokens=True)
-        return index, gold, text, score_completion(text, gold)
+def _name_slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
-async def evaluate_async(
-    trio: Any,
-    service: Any,
-    base_model: str,
-    model_path: str,
-    tokenizer: Any,
-    rows: list[dict[str, str]],
-    max_tokens: int,
-    print_samples: int,
-    concurrency: int,
-) -> None:
-    sampler = await service.create_sampling_client_async(
-        base_model=base_model,
-        model_path=model_path,
+def _float_name(value: float) -> str:
+    return format(value, ".8g").replace("-", "m").replace("+", "").replace(".", "p")
+
+
+def build_weights_name(args: argparse.Namespace, step: int, artifact_type: str) -> str:
+    if artifact_type not in {"train", "sampler"}:
+        raise ValueError(f"Unsupported artifact type: {artifact_type}")
+
+    model_name = args.base_model.rsplit("/", 1)[-1]
+    prefix = _name_slug(args.weights_name or f"{model_name}-gsm8k-grpo")
+    return "-".join(
+        [
+            prefix,
+            f"r{args.rank}",
+            f"n{args.limit}",
+            f"bs{args.batch_size}",
+            f"g{args.group_size}",
+            f"c{args.rollout_concurrency}",
+            f"mt{args.max_tokens}",
+            f"t{_float_name(args.temperature)}",
+            f"p{_float_name(args.top_p)}",
+            f"lr{_float_name(args.learning_rate)}",
+            f"s{args.seed}",
+            f"si{args.save_interval}",
+            f"step{step:06d}",
+            artifact_type,
+        ]
     )
-    params = trio.SamplingParams(
-        max_tokens=max_tokens,
-        temperature=0.0,
-        stop=stop_sequences(tokenizer),
-    )
-    semaphore = asyncio.Semaphore(concurrency)
-    print(f"\nAsync eval on {len(rows)} examples | concurrency={concurrency}")
-    if print_samples > 0:
-        print(f"打印前{min(print_samples, len(rows))}条 eval 样本：")
-
-    results = await asyncio.gather(
-        *(
-            evaluate_one(
-                trio=trio,
-                sampler=sampler,
-                tokenizer=tokenizer,
-                row=row,
-                index=index,
-                params=params,
-                semaphore=semaphore,
-            )
-            for index, row in enumerate(rows, start=1)
-        )
-    )
-
-    for index, gold, text, score in results:
-        if index <= print_samples:
-            print(
-                f"[eval sample {index}] exact={score['exact']} reward={score['reward']:.3f} "
-                f"answer={score['answer']!r} gold={gold}"
-            )
-            print(f"  {preview(text, 700)}")
-
-    rewards = [float(score["reward"]) for _, _, _, score in results]
-    exacts = [bool(score["exact"]) for _, _, _, score in results]
-    exact_acc = sum(exacts) / len(exacts) if exacts else 0.0
-    mean_reward = sum(rewards) / len(rewards) if rewards else 0.0
-    print(f"Eval result | exact_acc={exact_acc:.3f} | reward={mean_reward:.3f}")
 
 
 def format_metrics(metrics: dict[str, Any]) -> str:
@@ -345,14 +316,18 @@ def format_metrics(metrics: dict[str, Any]) -> str:
     return " | ".join(parts)
 
 
-def main() -> None:
+async def main() -> None:
     args = parse_args()
     if args.batch_size <= 0:
         raise SystemExit("--batch-size must be greater than 0")
     if args.group_size < 2:
         raise SystemExit("--group-size must be at least 2 for GRPO")
-    if args.eval_concurrency <= 0:
-        raise SystemExit("--eval-concurrency must be greater than 0")
+    if args.rollout_concurrency <= 0:
+        raise SystemExit("--rollout-concurrency must be greater than 0")
+    if args.save_interval <= 0:
+        raise SystemExit("--save-interval must be greater than 0")
+    if args.steps is not None and args.steps <= 0:
+        raise SystemExit("--steps must be greater than 0")
 
     trio, np, load_dataset = load_runtime()
     np.random.seed(args.seed)
@@ -374,13 +349,14 @@ def main() -> None:
         stop=stop_sequences(tokenizer),
     )
     adam = trio.AdamParams(learning_rate=args.learning_rate)
+    rollout_semaphore = asyncio.Semaphore(args.rollout_concurrency)
 
     steps = args.steps or math.ceil(len(rows) / args.batch_size)
     for step in range(steps):
         start = (step * args.batch_size) % len(rows)
         batch = [rows[(start + offset) % len(rows)] for offset in range(args.batch_size)]
 
-        sampler = trainer.save_weights_and_get_sampling_client()
+        sampler = await trainer.save_weights_and_get_sampling_client_async()
         datums = []
         rewards = []
         exacts = []
@@ -388,18 +364,27 @@ def main() -> None:
         trainable_groups = 0
         skipped = 0
 
-        for row in batch:
-            prompt_tokens = render_prompt(tokenizer, row["question"])
-            gold = gsm8k_gold(row["answer"])
-            samples = rollout_group(
-                trio=trio,
-                sampler=sampler,
-                tokenizer=tokenizer,
-                prompt_tokens=prompt_tokens,
-                gold=gold,
-                params=sample_params,
-                group_size=args.group_size,
+        rollout_inputs = [
+            (render_prompt(tokenizer, row["question"]), gsm8k_gold(row["answer"]))
+            for row in batch
+        ]
+        rollout_results = await asyncio.gather(
+            *(
+                rollout_group(
+                    trio=trio,
+                    sampler=sampler,
+                    tokenizer=tokenizer,
+                    prompt_tokens=prompt_tokens,
+                    gold=gold,
+                    params=sample_params,
+                    group_size=args.group_size,
+                    semaphore=rollout_semaphore,
+                )
+                for prompt_tokens, gold in rollout_inputs
             )
+        )
+
+        for (prompt_tokens, _), samples in zip(rollout_inputs, rollout_results, strict=True):
 
             rewards.extend(float(sample["reward"]) for sample in samples)
             exacts.extend(bool(sample["exact"]) for sample in samples)
@@ -428,25 +413,16 @@ def main() -> None:
             f"skipped_uniform={skipped}/{len(batch)} | datums={len(datums)} | {format_metrics(metrics)}"
         )
 
-    weights = trainer.save_weights_for_sampler(name=args.weights_name).result()
-    print(f"Saved LoRA sampler weights: {weights.path}")
+        completed_step = step + 1
+        if completed_step % args.save_interval == 0 or completed_step == steps:
+            state_name = build_weights_name(args, completed_step, "train")
+            state = trainer.save_state(name=state_name).result()
+            print(f"Saved training state: name={state_name} | path={state.path}")
 
-    if args.eval_limit > 0:
-        eval_rows = load_gsm8k(load_dataset, args.eval_limit, split=args.eval_split)
-        asyncio.run(
-            evaluate_async(
-                trio=trio,
-                service=service,
-                base_model=args.base_model,
-                model_path=weights.path,
-                tokenizer=tokenizer,
-                rows=eval_rows,
-                max_tokens=args.eval_max_tokens,
-                print_samples=args.eval_print_samples,
-                concurrency=args.eval_concurrency,
-            )
-        )
+            sampler_name = build_weights_name(args, completed_step, "sampler")
+            weights = trainer.save_weights_for_sampler(name=sampler_name).result()
+            print(f"Saved LoRA sampler weights: name={sampler_name} | path={weights.path}")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
