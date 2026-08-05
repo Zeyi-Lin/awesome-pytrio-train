@@ -1,0 +1,7 @@
+pytrio
+numpy
+swanlab
+datasets
+torch
+torchvision
+pillow

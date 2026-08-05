@@ -1,3 +1,5 @@
 pytrio
 swanlab
 torch
+datasets
+numpy
