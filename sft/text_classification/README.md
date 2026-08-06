@@ -1,5 +1,7 @@
 # 文本分类 LoRA SFT
 
+[![visitors](https://komarev.com/ghpvc/?username=zeyi-lin-awesome-pytrio-train-text-classification&label=visitors&color=1283c3&style=flat)](https://github.com/Zeyi-Lin/awesome-pytrio-train/tree/main/sft/text_classification)
+
 本示例使用 [PyTRIO](https://pytrio.cn) 在远程训练服务上对
 `Qwen/Qwen3.5-4B` 进行文本分类 LoRA 监督微调。模型接收待分类文本和候选标签，
 并且只能输出一个候选标签原文。

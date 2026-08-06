@@ -1,5 +1,7 @@
 # 多模态 LaTeX OCR LoRA SFT
 
+[![visitors](https://komarev.com/ghpvc/?username=zeyi-lin-awesome-pytrio-train-latext-ocr&label=visitors&color=1283c3&style=flat)](https://github.com/Zeyi-Lin/awesome-pytrio-train/tree/main/sft/latext_ocr)
+
 本示例使用 [PyTRIO](https://pytrio.cn) 在远程训练服务上对
 `Qwen/Qwen3.5-4B` 进行多模态 LoRA 监督微调，使模型把公式图片转写为
 LaTeX。训练和评测数据来自 Hugging Face 数据集

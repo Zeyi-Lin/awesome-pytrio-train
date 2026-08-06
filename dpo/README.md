@@ -1,5 +1,7 @@
 # HH-RLHF DPO
 
+[![visitors](https://komarev.com/ghpvc/?username=zeyi-lin-awesome-pytrio-train-dpo&label=visitors&color=1283c3&style=flat)](https://github.com/Zeyi-Lin/awesome-pytrio-train/tree/main/dpo)
+
 本示例使用 [PyTRIO](https://pytrio.cn) 在远程训练服务上对
 `Qwen/Qwen3.5-4B` 进行 LoRA DPO（Direct Preference Optimization），偏好数据来自
 [`Anthropic/hh-rlhf`](https://modelscope.cn/datasets/Anthropic/hh-rlhf)。
